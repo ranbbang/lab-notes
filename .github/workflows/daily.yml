@@ -1,0 +1,49 @@
+name: 종가 갱신
+
+on:
+  # 평일(월~금, UTC 요일 1-5) UTC 22:30 에 돈다. 미 동부 장 마감(16:00 ET) 은
+  # 서머타임이면 20:00 UTC, 표준시면 21:00 UTC 로 어느 쪽도 UTC 날짜가 안
+  # 바뀌므로, 22:30 UTC 하나로 두 시기 모두 마감 1.5~2.5시간 뒤를 잡는다.
+  schedule:
+    - cron: '30 22 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 세 소스가 다 막혀도 종료코드 0 이다 — 그날치가 안 쌓일 뿐이다.
+      - name: 종가 받아 이어붙이기
+        run: python tools/update_csv.py
+
+      - name: 바뀐 것이 있으면 커밋
+        run: |
+          if git diff --quiet data/series-a.csv; then
+            echo "새 종가 없음 — 커밋 생략"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/series-a.csv
+          git commit -m "데이터: 종가 갱신"
+          git push
+
+      # 세 소스가 다 막히면 커밋이 안 생긴다(의도된 동작이다). 그런데 공개
+      # 저장소의 스케줄 워크플로는 60일 무활동이면 GitHub 이 끄므로, 오래
+      # 막히면 커밋 0건 → 크론 비활성화 → 영구 정지인데 워크플로는 내내
+      # 초록불이다. 여기서 빨간불을 켜 실패 알림이 가게 한다.
+      - name: 데이터가 너무 낡았는지 확인
+        run: python tools/update_csv.py --check-stale
+
+# 손으로 돌리려면: gh workflow run daily.yml --repo ranbbang/lab-notes
+# 미 장중에 손으로 돌려도 안전하다 — update_csv.py 가 미확정 봉(장이 안 끝난
+# 날의 캔들 = 현재가)을 버린다.
