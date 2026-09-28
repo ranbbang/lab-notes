@@ -111,22 +111,30 @@ def drop_unsettled(rows: list[tuple[str, str]], cutoff: str | None = None
 
 
 def _yahoo(host: str, ticker: str) -> list[tuple[str, str]]:
-    # range=3mo 다. 1mo 는 크론이 며칠 멈춘 뒤나 첫 배포에서 공백을 못 메운다.
+    # range=10y 다 — 다른 파이프라인과 같은 요청이다.
+    # 예전에는 3mo 를 썼는데, 2026-09-22 ~ 09-26 크론 5번이 전부 그날(미 동부
+    # 저녁 8~9시) 봉 없이 '전날까지'만 받았다. 같은 시간대에 10y 로 받은 다른
+    # 파이프라인은 그날 봉까지 받았다. 그래서 요청을 똑같이 맞춘다.
     # append_new 가 마지막 날짜 이후만 걸러내므로 더 받아도 결과는 같다.
     url = (f"https://{host}/v8/finance/chart/{ticker}"
-           "?range=3mo&interval=1d&events=div%2Csplit")
+           "?range=10y&interval=1d&events=div%2Csplit")
     req = urllib.request.Request(url, headers=UA)
     with urllib.request.urlopen(req, timeout=30) as r:
         j = json.loads(r.read().decode("utf-8"))
     res = j["chart"]["result"][0]
     # 분할만 반영된 원종가를 쓴다. adjclose(배당 조정)는 기존 CSV 와 어긋난다.
     closes = res["indicators"]["quote"][0]["close"]
-    rows = []
+    rows, empty = [], []
     for ts, c in zip(res["timestamp"], closes):
-        if c is None:
-            continue
         d = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        if c is None:
+            empty.append(d)
+            continue
         rows.append((d, f"{c:.4f}".rstrip("0").rstrip(".")))
+    # 봉이 하루씩 늦게 쌓이던 일을 로그만 보고 가려낼 수 있게, 받은 마지막 날짜와
+    # 종가가 비어 버린 날을 남긴다.
+    log(f"{host}: 마지막 봉 {rows[-1][0] if rows else '-'}"
+        + (f", 종가 빈 봉 {len(empty)}개 버림: {', '.join(empty[-3:])}" if empty else ""))
     return rows
 
 

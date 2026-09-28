@@ -1,15 +1,30 @@
 name: 종가 갱신
 
 on:
-  # 평일(월~금, UTC 요일 1-5) UTC 22:30 에 돈다. 미 동부 장 마감(16:00 ET) 은
-  # 서머타임이면 20:00 UTC, 표준시면 21:00 UTC 로 어느 쪽도 UTC 날짜가 안
-  # 바뀌므로, 22:30 UTC 하나로 두 시기 모두 마감 1.5~2.5시간 뒤를 잡는다.
+  # 미 동부 장 마감(16:00 ET)은 서머타임이면 20:00 UTC, 표준시면 21:00 UTC 다.
+  #
+  # GitHub 스케줄은 제시각에 안 돈다. 22:30 UTC 로 걸어 둔 크론이 실제로는
+  # 매번 2시간쯤 늦게(00:37~00:55 UTC, 한국 09:40 전후) 돌았다. 그래서 한 번에
+  # 기대지 않고 세 번 건다 — 새 봉이 없으면 커밋을 안 하므로 여러 번 돌아도 같다.
+  #   20:47 UTC (월~금) : 서머타임이면 마감 47분 뒤. 표준시면 아직 미확정이라
+  #                       update_csv.py 가 그 봉을 버리고 다음 차례가 받는다.
+  #   22:17 UTC (월~금) : 두 시기 모두 마감 뒤.
+  #   01:07 UTC (화~토) : 앞의 둘이 늦거나 소스가 막혔을 때의 재시도.
+  #                       UTC 로는 다음 날이라 요일이 2-6 이다.
+  # 정각·30분은 GitHub 이 몰려 더 늦으므로 어중간한 분을 쓴다.
   schedule:
-    - cron: '30 22 * * 1-5'
+    - cron: '47 20 * * 1-5'
+    - cron: '17 22 * * 1-5'
+    - cron: '7 1 * * 2-6'
   workflow_dispatch:
 
 permissions:
   contents: write
+
+# 두 차례가 겹쳐 돌면 둘 다 커밋하려다 뒤엣것의 push 가 거절된다. 줄을 세운다.
+concurrency:
+  group: daily-csv
+  cancel-in-progress: false
 
 jobs:
   update:
@@ -35,6 +50,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/series-a.csv
           git commit -m "데이터: 종가 갱신"
+          # 그사이 로컬 배포가 올라왔을 수 있다. 그 위에 얹어서 올린다.
+          git pull --rebase
           git push
 
       # 세 소스가 다 막히면 커밋이 안 생긴다(의도된 동작이다). 그런데 공개
